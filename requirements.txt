@@ -1,0 +1,9 @@
+flask
+gunicorn
+faiss-cpu
+google-generativeai
+sentence-transformers
+PyPDF2
+python-dotenv
+SpeechRecognition
+werkzeug

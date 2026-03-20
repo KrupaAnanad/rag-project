@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Aurora AI // Neural Interface</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=18">
+</head>
+<body>
+
+    <div class="app-layout">
+        <aside class="sidebar">
+            <div class="sidebar-top">
+                <div class="brand">
+                    <div class="brand-logo"><i class="fa-solid fa-robot"></i></div>
+                    <div class="brand-text">
+                        <h1>Aurora AI</h1>
+                    </div>
+                </div>
+
+                <button id="new-chat-btn" class="new-chat-btn">
+                    <i class="fa-solid fa-plus"></i>
+                    <span>New Dialogue</span>
+                </button>
+
+                <div class="history-label">Synapses</div>
+                <div id="chat-list" class="chat-list">
+                    <!-- Chat items here -->
+                </div>
+            </div>
+
+            <div class="sidebar-bottom">
+                <div class="settings-group">
+                    <button id="open-knowledge-btn" class="sidebar-btn" title="Neural Bank">
+                        <i class="fa-solid fa-brain"></i>
+                        <span>Neural Bank</span>
+                    </button>
+                    <button id="open-settings-btn" class="sidebar-btn" title="Config">
+                        <i class="fa-solid fa-gear"></i>
+                    </button>
+                </div>
+                <div class="status-box">
+                    <div class="status-dot"></div>
+                    <span id="doc-count-display">Evaluating...</span>
+                </div>
+            </div>
+        </aside>
+
+        <main class="chat-container">
+            <header class="chat-header">
+                <span class="text-accent">Neural Channel Active</span>
+            </header>
+
+            <div id="chat-history" class="chat-history">
+                <!-- Messages will be injected here as message-wrappers -->
+            </div>
+
+            <div id="typing-indicator" class="typing-indicator hidden">
+                Aurora is processing...
+            </div>
+
+            <div class="chat-footer">
+                <div class="input-container">
+                    <div class="input-wrapper">
+                        <textarea id="user-input" placeholder="Message Aurora..." rows="1"></textarea>
+                        <button id="stop-btn" class="action-btn stop hidden" title="Stop generating"><i class="fa-solid fa-square"></i></button>
+                        <button id="send-btn" class="action-btn send" disabled><i class="fa-solid fa-arrow-up"></i></button>
+                    </div>
+                    <p class="footer-note">Aurora can make mistakes. Check important info.</p>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modals -->
+    <div id="knowledge-modal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Neural Bank</h3>
+                <button class="close-modal"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="modal-body">
+                <button id="upload-btn" class="sidebar-btn primary">
+                    <i class="fa-solid fa-upload"></i>
+                    <span>Upload Documents</span>
+                </button>
+                <input type="file" id="file-input" accept=".pdf,.txt" multiple hidden>
+                
+                <button id="rebuild-btn" class="sidebar-btn outline">
+                    <i class="fa-solid fa-rotate"></i>
+                    <span>Rebuild Index</span>
+                </button>
+                
+                <ul id="upload-list" class="file-list"></ul>
+            </div>
+        </div>
+    </div>
+
+    <div id="settings-modal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Settings</h3>
+                <button class="close-modal"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="modal-body">
+                <label class="history-label">API Key</label>
+                <div class="settings-group">
+                    <input type="password" id="api-key-input" class="new-chat-btn" placeholder="Enter key..." value="">
+                    <button id="update-key-btn" class="action-btn"><i class="fa-solid fa-floppy-disk"></i></button>
+                </div>
+                <button id="clear-all-chats-btn" class="sidebar-btn danger" style="margin-top: 20px; color: #ff3366;">
+                    <i class="fa-solid fa-trash"></i>
+                    <span>Clear All Conversations</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast" class="toast hidden">
+        <span id="toast-message"></span>
+    </div>
+
+    <script src="{{ url_for('static', filename='app.js') }}?v=18"></script>
+</body>
+</html>
