@@ -1,22 +1,27 @@
 import os
-from dotenv import load_dotenv
-load_dotenv(override=True)
-print(f"DEBUG: GOOGLE_API_KEY from .env is {'Found' if os.environ.get('GOOGLE_API_KEY') else 'NOT Found'}")
-
-import faiss
-import pickle
 import json
 import time
+import pickle
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context
 from werkzeug.utils import secure_filename
-from PyPDF2 import PdfReader
-import speech_recognition as sr
+from dotenv import load_dotenv
+
+# LangChain Imports
+from langchain_community.document_loaders import PyPDFDirectoryLoader, TextLoader, DirectoryLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_community.vectorstores import FAISS
+from langchain_huggingface import HuggingFaceEmbeddings
+from sentence_transformers import CrossEncoder
+
+# Load environment variables
+load_dotenv(override=True)
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 # ─── CONFIG ──────────────────────────────────────────
-pdf_folder = "pdfs"
-txt_folder = "texts"
-index_file = "faiss_index.index"
-metadata_file = "metadata.pkl"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+pdf_folder = os.path.join(BASE_DIR, "pdfs")
+txt_folder = os.path.join(BASE_DIR, "texts")
+faiss_db_path = os.path.join(BASE_DIR, "faiss_index") # LangChain FAISS saves to a directory
 
 os.makedirs(pdf_folder, exist_ok=True)
 os.makedirs(txt_folder, exist_ok=True)
@@ -25,42 +30,27 @@ app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
 ALLOWED_EXTENSIONS = {'txt', 'pdf'}
 
-# ─── EMBEDDING MODEL (LAZY LOAD) ─────────────────────
-_embedder = None
-def get_embedder():
-    global _embedder
-    if _embedder is None:
-        print("⏳ Loading embedding model...")
-        from sentence_transformers import SentenceTransformer
-        _embedder = SentenceTransformer("all-MiniLM-L6-v2")
-    return _embedder
+# ─── MODELS (LAZY LOAD) ──────────────────────────────
+_embeddings = None
+_re_ranker = None
+
+def get_embeddings():
+    global _embeddings
+    if _embeddings is None:
+        print("⏳ Loading HuggingFace Embeddings...")
+        _embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+    return _embeddings
+
+def get_re_ranker():
+    global _re_ranker
+    if _re_ranker is None:
+        print("⏳ Loading Cross-Encoder...")
+        _re_ranker = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
+    return _re_ranker
 
 # ─── FILE HELPERS ────────────────────────────────────
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
-def load_pdf(file_path):
-    reader = PdfReader(file_path)
-    text = ""
-    for page in reader.pages:
-        t = page.extract_text()
-        if t:
-            text += t + "\n"
-    return text
-
-def load_txt(file_path):
-    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-        return f.read()
-
-def chunk_text(text, chunk_size=200, overlap=40):
-    words = text.split()
-    chunks = []
-    start = 0
-    while start < len(words):
-        end = start + chunk_size
-        chunks.append(" ".join(words[start:end]))
-        start += chunk_size - overlap
-    return chunks
 
 def load_files_from_directory(pdf_folder, txt_folder):
     files = []
@@ -76,94 +66,101 @@ def load_files_from_directory(pdf_folder, txt_folder):
 
 # ─── BUILD INDEX ─────────────────────────────────────
 def build_index_stream(pdf_folder, txt_folder):
-    files = load_files_from_directory(pdf_folder, txt_folder)
+    try:
+        yield json.dumps({"status": "Loading documents..."}) + "\n"
+        
+        documents = []
+        
+        # Load PDFs using PyPDFDirectoryLoader
+        if os.path.exists(pdf_folder) and any(f.endswith('.pdf') for f in os.listdir(pdf_folder)):
+            pdf_loader = PyPDFDirectoryLoader(pdf_folder)
+            documents.extend(pdf_loader.load())
+        
+        # Load TXT files
+        if os.path.exists(txt_folder) and any(f.endswith('.txt') for f in os.listdir(txt_folder)):
+            txt_loader = DirectoryLoader(txt_folder, glob="*.txt", loader_cls=TextLoader)
+            documents.extend(txt_loader.load())
 
-    if not files:
-        yield json.dumps({"error": "No files found"}) + "\n"
-        return
+        if not documents:
+            yield json.dumps({"error": "No documents found in pdfs/ or texts/ folders."}) + "\n"
+            return
 
-    all_chunks = []
-    metadata = []
+        yield json.dumps({"status": f"Loaded {len(documents)} document pages. Splitting text..."}) + "\n"
+        
+        # Split text using RecursiveCharacterTextSplitter
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+        chunks = text_splitter.split_documents(documents)
+        
+        yield json.dumps({"status": f"Created {len(chunks)} chunks. Generating embeddings and building index..."}) + "\n"
+        
+        # Create FAISS index
+        vectorstore = FAISS.from_documents(chunks, get_embeddings())
+        
+        # Save index locally
+        vectorstore.save_local(faiss_db_path)
+        
+        yield json.dumps({"success": "Neural Bank rebuilt successfully with LangChain FAISS."}) + "\n"
+    except Exception as e:
+        yield json.dumps({"error": f"Index Build Error: {str(e)}"}) + "\n"
 
-    yield json.dumps({"status": f"Processing {len(files)} files"}) + "\n"
-
-    for ftype, path in files:
-        try:
-            text = load_pdf(path) if ftype == "pdf" else load_txt(path)
-            chunks = chunk_text(text)
-            for c in chunks:
-                all_chunks.append(c)
-                metadata.append({"text": c, "source": path})
-        except Exception as e:
-            yield json.dumps({"error": str(e)}) + "\n"
-
-    embeddings = get_embedder().encode(all_chunks)
-
-    index = faiss.IndexFlatL2(embeddings.shape[1])
-    index.add(embeddings)
-
-    faiss.write_index(index, index_file)
-
-    with open(metadata_file, "wb") as f:
-        pickle.dump(metadata, f)
-
-    yield json.dumps({"success": "Index built"}) + "\n"
-
-# ─── RETRIEVE ───────────────────────────────────────
-def retrieve(query, top_k=5):
-    if not os.path.exists(index_file):
+# ─── RETRIEVE & RE-RANK ──────────────────────────────
+def retrieve(query, top_k=10, final_k=5):
+    if not os.path.exists(faiss_db_path):
         return []
 
-    index = faiss.read_index(index_file)
-    docs = pickle.load(open(metadata_file, "rb"))
+    # Load FAISS index
+    embeddings = get_embeddings()
+    vectorstore = FAISS.load_local(faiss_db_path, embeddings, allow_dangerous_deserialization=True)
+    
+    # Initial retrieval (top_k)
+    initial_docs = vectorstore.similarity_search(query, k=top_k)
+    
+    if not initial_docs:
+        return []
 
-    query_vec = get_embedder().encode([query])
-    _, indices = index.search(query_vec, top_k)
+    # Re-rank using Cross-Encoder
+    re_ranker = get_re_ranker()
+    sentence_pairs = [[query, doc.page_content] for doc in initial_docs]
+    scores = re_ranker.predict(sentence_pairs)
+    
+    # Sort docs by score
+    results = sorted(zip(initial_docs, scores), key=lambda x: x[1], reverse=True)
+    
+    # Return top final_k docs
+    return [{"text": doc.page_content, "source": doc.metadata.get("source", "Unknown")} for doc, score in results[:final_k]]
 
-    return [docs[i] for i in indices[0] if i < len(docs)]
-
-# ─── STREAM AI RESPONSE (WITH RETRIES) ────────────────
+# ─── STREAM AI RESPONSE ──────────────────────────────
 def AI_assistant_stream(query, api_key):
-    import google.generativeai as genai
+    from groq import Groq
 
-    model_name = "gemini-2.5-flash" # Updated as per your latest preference
+    model_name = "llama-3.3-70b-versatile"
     try:
-        genai.configure(api_key=api_key)
-        
-        model = genai.GenerativeModel(
-            model_name=model_name,
-            system_instruction="""You are 'Aurora', a friendly and expert neural assistant. 
-            Greet the user warmly when they say hi. 
-            For factual questions: You are strictly forbidden from using any internal or general world knowledge. 
-            You must ONLY use the provided Context to answer. If the information is not present in the Context, 
-            briefly say: 'I don't have the information'. 
-            CRITICAL: ALWAYS cite your sources (the filename) for every claim you make."""
-        )
+        client = Groq(api_key=api_key or os.getenv("GROQ_API_KEY"))
     except Exception as e:
-        error_msg = str(e)
-        if "404" in error_msg:
-             yield json.dumps({"error": f"Model Initialization Failed (404): Model '{model_name}' not found. Please check your model name or API access."}) + "\n"
-        else:
-             yield json.dumps({"error": f"Model Initialization Failed: {error_msg}"}) + "\n"
+        yield json.dumps({"error": f"Model Initialization Failed: {str(e)}"}) + "\n"
         return
 
+    system_instruction = """You are 'Aurora', a friendly and expert neural assistant. 
+    Greet the user warmly when they say hi. 
+    For factual questions: You are strictly forbidden from using any internal or general world knowledge. 
+    You must ONLY use the provided Context to answer. If the information is not present in the Context, 
+    briefly say: 'I don't have the information'. 
+    CRITICAL: ALWAYS cite your sources (the filename) for every claim you make."""
+
+    messages = [{"role": "system", "content": system_instruction}]
+
     docs = retrieve(query)
-    
-    # Simple Greeting Heuristic
     is_greeting = query.lower().strip() in ["hi", "hello", "hey", "greetings"]
     
     if not docs and not is_greeting:
-        yield json.dumps({"chunk": "No data available. Upload documents first."}) + "\n"
+        yield json.dumps({"chunk": "No data available in the Neural Bank. Please upload documents and Rebuild Index."}) + "\n"
         return
 
-    context = ""
-    if docs:
-        context = "\n".join([f"Source: {d.get('source', 'Unknown')}\nText: {d['text']}" for d in docs])
+    context = "\n".join([f"Source: {d.get('source', 'Unknown')}\nText: {d['text']}" for d in docs])
     
     if is_greeting:
         prompt = f"GREETING: {query}\nTASK: Greet the user as Aurora. Do not mention documents unless asked."
     else:
-        # Factual query
         prompt = f"""
 USER QUESTION:
 {query}
@@ -178,27 +175,19 @@ If the DATA above contains the answer, use it and cite the filename.
 If the DATA is EMPTY or does not contain the answer, say "I don't have the information in my current bank."
 """
 
-    # Generation with Retry Loop
-    max_retries = 3
-    retry_delay = 2
-    
-    for attempt in range(max_retries):
-        try:
-            response = model.generate_content(prompt, stream=True)
-            for chunk in response:
-                if chunk.text:
-                    yield json.dumps({"chunk": chunk.text}) + "\n"
-            return # Successful completion
-            
-        except Exception as e:
-            error_msg = str(e)
-            if "quota" in error_msg.lower() or "too many requests" in error_msg.lower() or "500" in error_msg:
-                if attempt < max_retries - 1:
-                    time.sleep(retry_delay * (attempt + 1))
-                    continue
-            
-            yield json.dumps({"error": f"AI Error: {error_msg}"}) + "\n"
-            return
+    messages.append({"role": "user", "content": prompt})
+
+    try:
+        response = client.chat.completions.create(
+            model=model_name,
+            messages=messages,
+            stream=True
+        )
+        for chunk in response:
+            if chunk.choices[0].delta.content is not None:
+                yield json.dumps({"chunk": chunk.choices[0].delta.content}) + "\n"
+    except Exception as e:
+        yield json.dumps({"error": f"AI Error: {str(e)}"}) + "\n"
 
 # ─── ROUTES ─────────────────────────────────────────
 @app.route('/')
@@ -208,67 +197,38 @@ def home():
 @app.route('/chat_stream', methods=['POST'])
 def chat_stream():
     data = request.json
-
     query = data.get('message')
-    # Better API key extraction: use request JSON, then os environment
-    api_key_provided = data.get('api_key', '').strip()
-    api_key = api_key_provided if api_key_provided else os.environ.get("GOOGLE_API_KEY")
+    # Force use of Groq API Key from env to avoid pushing hardcoded key to GitHub
+    api_key = os.getenv("GROQ_API_KEY")
 
-    if not query:
-        return jsonify({"error": "No message"}), 400
-
-    if not api_key:
-        return jsonify({"error": "API key required (set GOOGLE_API_KEY in .env or provide it in request)"}), 400
-
-    # Mask key for privacy
-    masked_key = f"{api_key[:10]}..." if (api_key and len(api_key) > 5) else "NONE"
-    
-    # Correct model name: sometimes the 'models/' prefix is needed, sometimes not.
-    # We already have 'models/gemini-2.5-flash' which we verified earlier.
-    model_name = "gemini-2.5-flash"
-    
-    print(f"📡 AI stream request: model={model_name} key={masked_key}")
-
-    # Fallback to .env if front-end didn't send anything valid
-    if not api_key:
-        api_key = os.environ.get("GOOGLE_API_KEY")
-        print("DEBUG: Using fallback GOOGLE_API_KEY from environment.")
+    if not query: return jsonify({"error": "No message"}), 400
 
     return Response(
         stream_with_context(AI_assistant_stream(query, api_key)),
         mimetype='application/x-ndjson'
     )
 
-@app.route('/test_api_key', methods=['POST'])
-def test_api():
-    import google.generativeai as genai
-    data = request.json
-    api_key_provided = data.get('api_key', '').strip()
-    api_key = api_key_provided if api_key_provided else os.environ.get("GOOGLE_API_KEY")
-    if not api_key:
-        return jsonify({"error": "No API Key provided in request or .env"})
-    
-    try:
-        genai.configure(api_key=api_key)
-        # Try listing models as a quick test
-        genai.list_models()
-        return jsonify({"success": "API Key is valid and working."})
-    except Exception as e:
-        return jsonify({"error": str(e)})
-
 @app.route('/upload', methods=['POST'])
 def upload():
     files = request.files.getlist("files[]")
-
     for file in files:
         if file and allowed_file(file.filename):
             name = secure_filename(file.filename)
-            if name.endswith(".pdf"):
-                file.save(os.path.join(pdf_folder, name))
-            else:
-                file.save(os.path.join(txt_folder, name))
-
+            target = os.path.join(pdf_folder, name) if name.endswith(".pdf") else os.path.join(txt_folder, name)
+            file.save(target)
     return jsonify({"success": "Uploaded"})
+
+@app.route('/test_api_key', methods=['POST'])
+def test_api():
+    from groq import Groq
+    data = request.json
+    # Force use of Groq API Key from env
+    api_key = os.getenv("GROQ_API_KEY")
+    try:
+        client = Groq(api_key=api_key)
+        client.models.list()
+        return jsonify({"success": "API Key is valid."})
+    except Exception as e: return jsonify({"error": str(e)})
 
 @app.route('/rebuild_stream')
 def rebuild():
@@ -279,22 +239,40 @@ def rebuild():
 
 @app.route('/index_clear', methods=['POST'])
 def clear_index():
+    import shutil
     try:
-        if os.path.exists(index_file): os.remove(index_file)
-        if os.path.exists(metadata_file): os.remove(metadata_file)
-        return jsonify({"success": "Neural Bank wiped. You can now rebuild with new documents."})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        if os.path.exists(faiss_db_path):
+            shutil.rmtree(faiss_db_path)
+        return jsonify({"success": "Neural Bank wiped."})
+    except Exception as e: return jsonify({"error": str(e)}), 500
 
 @app.route('/docs')
 def docs():
-    files = load_files_from_directory(pdf_folder, txt_folder)
-    return jsonify({"docs": [os.path.basename(f[1]) for f in files]})
+    import os
+    from langchain_community.vectorstores import FAISS
+    
+    unique_sources = set()
+    
+    # 1. Check FAISS first to list what's actually successfully synced in the Neural Bank
+    if os.path.exists(faiss_db_path):
+        try:
+            vectorstore = FAISS.load_local(faiss_db_path, get_embeddings(), allow_dangerous_deserialization=True)
+            for doc_id, doc in vectorstore.docstore._dict.items():
+                if "source" in doc.metadata and doc.metadata["source"] != "Unknown":
+                    unique_sources.add(os.path.basename(doc.metadata["source"]))
+        except Exception:
+            pass
+            
+    # 2. Add any physical files currently sitting in the directories
+    if os.path.exists(pdf_folder):
+        for f in os.listdir(pdf_folder):
+            if f.endswith(".pdf"): unique_sources.add(f)
+    if os.path.exists(txt_folder):
+        for f in os.listdir(txt_folder):
+            if f.endswith(".txt"): unique_sources.add(f)
+                
+    return jsonify({"docs": list(unique_sources)})
 
-# ─── RUN ────────────────────────────────────────────
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    print(f"🚀 Server starting on port {port}...")
-    # Enable debug mode for auto-reloading
-    # Disable the reloader to prevent loops with heavy libraries like sentence-transformers
     app.run(host="0.0.0.0", port=port, debug=True, use_reloader=False)

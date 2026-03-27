@@ -67,8 +67,13 @@ document.addEventListener('DOMContentLoaded', () => {
         currentChatId = id;
         renderChatList();
         const chat = chats.find(c => c.id === id);
-        chatHistory.innerHTML = '';
-        chat.messages.forEach(msg => appendMessage(msg.role, msg.content));
+        
+        if (chat && chat.messages.length > 0) {
+            chatHistory.innerHTML = '';
+            chat.messages.forEach(msg => appendMessage(msg.role, msg.content));
+        } else {
+            clearDisplay();
+        }
     }
 
     function clearDisplay() {

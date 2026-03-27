@@ -167,6 +167,17 @@ body {
 .cursor { display: inline-block; width: 2px; height: 1.25em; background: var(--accent); vertical-align: middle; margin-left: 2px; animation: blink 1s infinite; }
 @keyframes blink { 50% { opacity: 0; } }
 
+/* ─── MARKDOWN CONTENT STYLING ─── */
+.message-content p { margin-bottom: 0.8em; }
+.message-content p:last-child { margin-bottom: 0; }
+.message-content ol, .message-content ul { padding-left: 24px; margin-bottom: 0.8em; }
+.message-content li { margin-bottom: 4px; padding-left: 4px; }
+.message-content ol li { list-style-type: decimal; }
+.message-content ul li { list-style-type: disc; }
+.message-content pre { background: rgba(0, 0, 0, 0.3); padding: 12px; border-radius: 8px; overflow-x: auto; margin-bottom: 0.8em; border: 1px solid var(--border); }
+.message-content code { font-family: 'Courier New', monospace; background: rgba(0, 0, 0, 0.3); padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
+.message-content pre code { background: transparent; padding: 0; }
+
 /* ─── FOOTER ─── */
 .chat-footer { padding: 10px 0 40px; }
 .input-container { max-width: 800px; margin: 0 auto; padding: 0 20px; }

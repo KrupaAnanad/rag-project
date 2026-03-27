@@ -1,4 +1,5 @@
 .env
+faiss_index/
 faiss_index.index
 metadata.pkl
 __pycache__/
