@@ -1,6 +1,6 @@
 .env
-Ai.index
-AI_docs.pkl
+faiss_index.index
+metadata.pkl
 __pycache__/
 *.pyc
 *.pyo
@@ -24,3 +24,6 @@ pdfs/*
 texts/*
 !pdfs/.gitkeep
 !texts/.gitkeep
+*.log
+models*.txt
+test_prefix_out.txt

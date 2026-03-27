@@ -2,8 +2,8 @@
 :root {
     --bg-main: #0B0B0B;
     --bg-sidebar: #121212;
-    --bg-bubble-user: #3B82F6; /* Indigo/Blue for user */
-    --bg-bubble-ai: #1E1E1E; /* Dark Gray for AI */
+    --bg-bubble-user: #3B82F6;
+    --bg-bubble-ai: #1E1E1E;
     --bg-input: #1A1A1A;
     
     --accent: #3B82F6;
@@ -23,6 +23,11 @@
     100% { background-position: 0% 50%; }
 }
 
+@keyframes fadeInScale {
+    from { opacity: 0; transform: scale(0.95) translateY(10px); }
+    to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
@@ -32,6 +37,10 @@ body {
     height: 100vh;
     display: flex;
     overflow: hidden;
+    /* subtle grid background */
+    background-image: 
+        radial-gradient(circle at 2px 2px, #1a1a1a 1px, transparent 0);
+    background-size: 40px 40px;
 }
 
 .app-layout { display: flex; width: 100%; height: 100%; }
@@ -39,7 +48,7 @@ body {
 /* ─── SIDEBAR ─── */
 .sidebar {
     width: 280px;
-    background: rgba(18, 18, 18, 0.85);
+    background: rgba(10, 10, 10, 0.95);
     backdrop-filter: blur(20px);
     display: flex;
     flex-direction: column;
@@ -140,43 +149,56 @@ body {
 }
 .ai .bubble { 
     background: var(--bg-bubble-ai); color: #E5E5E5; border-bottom-left-radius: 4px; border: 1px solid var(--border);
-    position: relative;
+    position: relative; padding-right: 45px; /* Space for copy button */
 }
 
 .copy-btn {
-    position: absolute; bottom: 8px; right: 12px;
-    background: transparent; border: none; color: var(--text-muted); cursor: pointer;
-    font-size: 0.8rem; opacity: 0; transition: 0.2s;
+    position: absolute; top: 12px; right: 12px;
+    background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); 
+    color: var(--text-muted); cursor: pointer;
+    width: 28px; height: 28px; border-radius: 6px;
+    font-size: 0.85rem; opacity: 0.6; transition: 0.2s;
+    display: flex; align-items: center; justify-content: center;
 }
 
-.message-wrapper.ai:hover .copy-btn { opacity: 1; }
+.message-wrapper.ai:hover .copy-btn { opacity: 1; background: rgba(59, 130, 246, 0.2); border-color: var(--accent); color: white; }
 .copy-btn:hover { color: white; }
 
 .cursor { display: inline-block; width: 2px; height: 1.25em; background: var(--accent); vertical-align: middle; margin-left: 2px; animation: blink 1s infinite; }
 @keyframes blink { 50% { opacity: 0; } }
 
 /* ─── FOOTER ─── */
-.chat-footer { padding: 20px 0 40px; }
+.chat-footer { padding: 10px 0 40px; }
 .input-container { max-width: 800px; margin: 0 auto; padding: 0 20px; }
 .input-wrapper {
-    background: var(--bg-input); border: 1px solid var(--border); border-radius: 16px; 
-    padding: 10px 16px; display: flex; align-items: flex-end; gap: 12px; transition: 0.3s;
+    background: #1A1A1A; border: 1px solid #333; border-radius: 24px; 
+    padding: 10px 14px; display: flex; align-items: center; gap: 8px; transition: 0.3s;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
 }
-.input-wrapper:focus-within { border-color: var(--accent); box-shadow: 0 0 20px rgba(59, 130, 246, 0.15); }
+.input-wrapper:focus-within { border-color: var(--accent); box-shadow: 0 0 20px rgba(59, 130, 246, 0.2); }
 
 #user-input {
-    flex: 1; background: transparent; border: none; color: white; padding: 8px 0; font-size: 1.05rem; 
-    outline: none; resize: none; max-height: 180px; font-family: inherit; line-height: 1.5;
+    flex: 1; background: transparent; border: none !important; color: white; 
+    padding: 6px 4px; font-size: 1rem; 
+    outline: none !important; resize: none; max-height: 200px; font-family: inherit; line-height: 1.5;
+    /* Hide scrollbars */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
 }
+#user-input::-webkit-scrollbar { display: none; }
 
-.action-btn { width: 40px; height: 40px; border-radius: 10px; border: none; background: transparent; color: var(--text-muted); cursor: pointer; transition: 0.2s; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; }
+.action-btn { 
+    min-width: 36px; height: 36px; border-radius: 12px; border: none; 
+    background: transparent; color: var(--text-muted); cursor: pointer; transition: 0.2s; 
+    display: flex; align-items: center; justify-content: center; font-size: 1.1rem; 
+}
 .action-btn:hover { color: white; background: #2A2A2A; }
-.action-btn.send { background: var(--accent); color: white; }
+.action-btn.send { background: var(--accent); color: white; border-radius: 50%; width: 36px; height: 36px; }
 .action-btn.send:disabled { background: transparent; color: #333; cursor: default; }
 
-.action-btn.stop { background: #333; color: white; border: 1px solid #444; width: 32px; height: 32px; margin-right: 4px; }
-.action-btn.stop:hover { background: #FF3B30; border-color: #FF3B30; }
-.action-btn.stop i { font-size: 0.8rem; }
+.action-btn.stop { background: #CC0000; color: white; border: none; width: 32px; height: 32px; border-radius: 8px; margin-right: 4px; }
+.action-btn.stop:hover { background: #FF0000; }
+.action-btn.stop i { font-size: 0.7rem; }
 
 .footer-note { text-align: center; color: var(--text-muted); font-size: 0.75rem; margin-top: 12px; }
 
@@ -202,54 +224,85 @@ body {
 /* ─── WELCOME HERO ─── */
 .welcome-hero {
     text-align: center;
-    max-width: 500px;
-    margin: 80px auto;
+    max-width: 600px;
+    margin: auto; /* Center in parent */
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 20px;
-    animation: fadeIn 0.8s ease;
+    gap: 24px;
+    animation: fadeInScale 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+    padding: 20px;
+    z-index: 5;
 }
-
-@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
 .hero-icon {
-    font-size: 4rem;
-    color: var(--accent);
+    width: 80px;
+    height: 80px;
+    background: var(--accent);
+    border-radius: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2.5rem;
+    color: white;
+    box-shadow: 0 0 40px var(--accent-glow);
     margin-bottom: 20px;
-    animation: floating 3s infinite ease-in-out;
+    animation: floating 4s infinite ease-in-out;
 }
 
-@keyframes floating { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+@keyframes floating { 0%, 100% { transform: translateY(0) rotate(0); } 50% { transform: translateY(-15px) rotate(5deg); } }
 
-.welcome-hero h2 { font-size: 2.5rem; font-weight: 800; letter-spacing: -1px; }
-.welcome-hero p { color: var(--text-muted); line-height: 1.6; font-size: 1.1rem; }
+.welcome-hero h2 { 
+    font-size: 2.8rem; 
+    font-weight: 800; 
+    letter-spacing: -1.5px;
+    background: linear-gradient(to bottom, #fff, #aaa);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.welcome-hero p { 
+    color: var(--text-muted); 
+    line-height: 1.6; 
+    font-size: 1.1rem; 
+    max-width: 450px;
+}
+
 .welcome-hero b { color: var(--accent); }
 
 .features {
     display: flex;
-    gap: 12px;
-    margin-top: 20px;
+    gap: 16px;
+    margin-top: 30px;
     flex-wrap: wrap;
     justify-content: center;
 }
 
-.features span {
-    background: rgba(59, 130, 246, 0.1);
-    border: 1px solid rgba(59, 130, 246, 0.2);
-    padding: 8px 18px;
+.feature-tag {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(5px);
+    padding: 10px 20px;
     border-radius: 99px;
-    font-size: 0.85rem;
+    font-size: 0.9rem;
     font-weight: 600;
-    color: #A5C9FF;
+    color: #fff;
     display: flex;
     align-items: center;
-    gap: 8px;
-    transition: 0.3s;
+    gap: 10px;
+    transition: all 0.3s ease;
+    cursor: pointer;
 }
 
-.features span:hover { background: rgba(59, 130, 246, 0.2); transform: scale(1.05); }
+.feature-tag:hover { 
+    background: rgba(59, 130, 246, 0.15); 
+    border-color: var(--accent);
+    transform: translateY(-3px) scale(1.02);
+}
 
-.features span i { color: var(--accent); }
+.feature-tag i { color: var(--accent); font-size: 1rem; }
 
-.small { font-size: 0.9rem; opacity: 0.8; margin-top: 10px; }
+.chat-history::-webkit-scrollbar { width: 6px; }
+.chat-history::-webkit-scrollbar-thumb { background: #222; border-radius: 10px; }
+.chat-history::-webkit-scrollbar-track { background: transparent; }

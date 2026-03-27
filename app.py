@@ -1,4 +1,8 @@
 import os
+from dotenv import load_dotenv
+load_dotenv(override=True)
+print(f"DEBUG: GOOGLE_API_KEY from .env is {'Found' if os.environ.get('GOOGLE_API_KEY') else 'NOT Found'}")
+
 import faiss
 import pickle
 import json
@@ -118,40 +122,83 @@ def retrieve(query, top_k=5):
 
     return [docs[i] for i in indices[0] if i < len(docs)]
 
-# ─── STREAM AI RESPONSE (FIXED) ──────────────────────
+# ─── STREAM AI RESPONSE (WITH RETRIES) ────────────────
 def AI_assistant_stream(query, api_key):
     import google.generativeai as genai
 
+    model_name = "gemini-2.5-flash" # Updated as per your latest preference
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-2.5-flash")
+        
+        model = genai.GenerativeModel(
+            model_name=model_name,
+            system_instruction="""You are 'Aurora', a friendly and expert neural assistant. 
+            Greet the user warmly when they say hi. 
+            For factual questions: You are strictly forbidden from using any internal or general world knowledge. 
+            You must ONLY use the provided Context to answer. If the information is not present in the Context, 
+            briefly say: 'I don't have the information'. 
+            CRITICAL: ALWAYS cite your sources (the filename) for every claim you make."""
+        )
     except Exception as e:
-        yield json.dumps({"error": f"Invalid API Key: {str(e)}"}) + "\n"
+        error_msg = str(e)
+        if "404" in error_msg:
+             yield json.dumps({"error": f"Model Initialization Failed (404): Model '{model_name}' not found. Please check your model name or API access."}) + "\n"
+        else:
+             yield json.dumps({"error": f"Model Initialization Failed: {error_msg}"}) + "\n"
         return
 
     docs = retrieve(query)
-
-    if not docs:
+    
+    # Simple Greeting Heuristic
+    is_greeting = query.lower().strip() in ["hi", "hello", "hey", "greetings"]
+    
+    if not docs and not is_greeting:
         yield json.dumps({"chunk": "No data available. Upload documents first."}) + "\n"
         return
 
-    context = "\n".join([d["text"] for d in docs])
-
-    prompt = f"""
-Context:
-{context}
-
-Question:
+    context = ""
+    if docs:
+        context = "\n".join([f"Source: {d.get('source', 'Unknown')}\nText: {d['text']}" for d in docs])
+    
+    if is_greeting:
+        prompt = f"GREETING: {query}\nTASK: Greet the user as Aurora. Do not mention documents unless asked."
+    else:
+        # Factual query
+        prompt = f"""
+USER QUESTION:
 {query}
+
+DATA FROM NEURAL BANK:
+---
+{context if context else 'EMPTY STORE'}
+---
+
+FINAL INSTRUCTION: 
+If the DATA above contains the answer, use it and cite the filename.
+If the DATA is EMPTY or does not contain the answer, say "I don't have the information in my current bank."
 """
 
-    try:
-        response = model.generate_content(prompt, stream=True)
-        for chunk in response:
-            if chunk.text:
-                yield json.dumps({"chunk": chunk.text}) + "\n"
-    except Exception as e:
-        yield json.dumps({"error": str(e)}) + "\n"
+    # Generation with Retry Loop
+    max_retries = 3
+    retry_delay = 2
+    
+    for attempt in range(max_retries):
+        try:
+            response = model.generate_content(prompt, stream=True)
+            for chunk in response:
+                if chunk.text:
+                    yield json.dumps({"chunk": chunk.text}) + "\n"
+            return # Successful completion
+            
+        except Exception as e:
+            error_msg = str(e)
+            if "quota" in error_msg.lower() or "too many requests" in error_msg.lower() or "500" in error_msg:
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay * (attempt + 1))
+                    continue
+            
+            yield json.dumps({"error": f"AI Error: {error_msg}"}) + "\n"
+            return
 
 # ─── ROUTES ─────────────────────────────────────────
 @app.route('/')
@@ -163,18 +210,51 @@ def chat_stream():
     data = request.json
 
     query = data.get('message')
-    api_key = data.get('api_key')
+    # Better API key extraction: use request JSON, then os environment
+    api_key_provided = data.get('api_key', '').strip()
+    api_key = api_key_provided if api_key_provided else os.environ.get("GOOGLE_API_KEY")
 
     if not query:
         return jsonify({"error": "No message"}), 400
 
     if not api_key:
-        return jsonify({"error": "API key required"}), 400
+        return jsonify({"error": "API key required (set GOOGLE_API_KEY in .env or provide it in request)"}), 400
+
+    # Mask key for privacy
+    masked_key = f"{api_key[:10]}..." if (api_key and len(api_key) > 5) else "NONE"
+    
+    # Correct model name: sometimes the 'models/' prefix is needed, sometimes not.
+    # We already have 'models/gemini-2.5-flash' which we verified earlier.
+    model_name = "gemini-2.5-flash"
+    
+    print(f"📡 AI stream request: model={model_name} key={masked_key}")
+
+    # Fallback to .env if front-end didn't send anything valid
+    if not api_key:
+        api_key = os.environ.get("GOOGLE_API_KEY")
+        print("DEBUG: Using fallback GOOGLE_API_KEY from environment.")
 
     return Response(
         stream_with_context(AI_assistant_stream(query, api_key)),
         mimetype='application/x-ndjson'
     )
+
+@app.route('/test_api_key', methods=['POST'])
+def test_api():
+    import google.generativeai as genai
+    data = request.json
+    api_key_provided = data.get('api_key', '').strip()
+    api_key = api_key_provided if api_key_provided else os.environ.get("GOOGLE_API_KEY")
+    if not api_key:
+        return jsonify({"error": "No API Key provided in request or .env"})
+    
+    try:
+        genai.configure(api_key=api_key)
+        # Try listing models as a quick test
+        genai.list_models()
+        return jsonify({"success": "API Key is valid and working."})
+    except Exception as e:
+        return jsonify({"error": str(e)})
 
 @app.route('/upload', methods=['POST'])
 def upload():
@@ -197,6 +277,15 @@ def rebuild():
         mimetype='application/x-ndjson'
     )
 
+@app.route('/index_clear', methods=['POST'])
+def clear_index():
+    try:
+        if os.path.exists(index_file): os.remove(index_file)
+        if os.path.exists(metadata_file): os.remove(metadata_file)
+        return jsonify({"success": "Neural Bank wiped. You can now rebuild with new documents."})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/docs')
 def docs():
     files = load_files_from_directory(pdf_folder, txt_folder)
@@ -205,5 +294,7 @@ def docs():
 # ─── RUN ────────────────────────────────────────────
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    print("🚀 Server running...")
-    app.run(host="0.0.0.0", port=port)
+    print(f"🚀 Server starting on port {port}...")
+    # Enable debug mode for auto-reloading
+    # Disable the reloader to prevent loops with heavy libraries like sentence-transformers
+    app.run(host="0.0.0.0", port=port, debug=True, use_reloader=False)

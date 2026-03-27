@@ -95,6 +95,11 @@
                 </button>
                 
                 <ul id="upload-list" class="file-list"></ul>
+
+                <button id="wipe-index-btn" class="sidebar-btn danger" style="margin-top: 10px; color: #ff3366; background: rgba(255, 51, 102, 0.1);">
+                    <i class="fa-solid fa-radiation"></i>
+                    <span>Wipe Stores</span>
+                </button>
             </div>
         </div>
     </div>
@@ -109,9 +114,11 @@
                 <label class="history-label">API Key</label>
                 <div class="settings-group">
                     <input type="password" id="api-key-input" class="new-chat-btn" placeholder="Enter key..." value="">
-                    <button id="update-key-btn" class="action-btn"><i class="fa-solid fa-floppy-disk"></i></button>
+                    <button id="update-key-btn" class="action-btn" title="Save API Key"><i class="fa-solid fa-floppy-disk"></i></button>
+                    <button id="test-key-btn" class="action-btn" title="Test Key" style="background: rgba(16, 163, 127, 0.2); color: #10A37F;"><i class="fa-solid fa-vial"></i></button>
                 </div>
-                <button id="clear-all-chats-btn" class="sidebar-btn danger" style="margin-top: 20px; color: #ff3366;">
+
+                <button id="clear-all-chats-btn" class="sidebar-btn danger" style="margin-top: 25px; color: #ff3366;">
                     <i class="fa-solid fa-trash"></i>
                     <span>Clear All Conversations</span>
                 </button>
